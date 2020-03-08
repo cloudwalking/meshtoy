@@ -18,13 +18,15 @@ FASTLED_USING_NAMESPACE
 #define MESH_PASSWORD "synchrobike"
 #define MESH_PORT     5555
 
-#define TAG_PALETTE "syncpal"
+#define TAG_PALETTE "palette"
 
-#define MASTER 1
+#define MASTER 0
 
+painlessMesh _mesh;
+CRGB _mesh_indicator = CRGB::Black;
 CRGB leds[NUM_LEDS];
-CRGBPalette16 mesh_palette = RainbowColors_p;
-painlessMesh mesh;
+CRGBPalette16 _mesh_palette = RainbowColors_p;
+bool _has_palette = false;
 
 void confetti();
 void receivedCallback(uint32_t from, String &msg);
@@ -51,26 +53,37 @@ void setup() {
   // Print all debug messages.
   //mesh.setDebugMsgTypes( ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE );
   // Print some debug messages.
-  mesh.setDebugMsgTypes( ERROR | STARTUP | CONNECTION);
+  _mesh.setDebugMsgTypes( ERROR | STARTUP | CONNECTION);
   
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT);
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionCallback);
-  mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
+  _mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT);
+  _mesh.onReceive(&receivedCallback);
+  _mesh.onNewConnection(&newConnectionCallback);
+  _mesh.onChangedConnections(&changedConnectionCallback);
+  _mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
 }
 
 void loop() {
-  mesh.update();
+  _mesh.update();
   EVERY_N_MILLISECONDS(1000/FRAMES_PER_SECOND) {
-    confetti();
+    // _has_palette set when a palette is received from the mesh.
+    if (_has_palette) {
+      confetti();
+    }
+    leds[0] = _mesh_indicator;
   }
-  EVERY_N_SECONDS(3) {
+  EVERY_N_MILLISECONDS(250) {
+    if (_mesh.getNodeList().size() > 0) {
+      _mesh_indicator = CRGB::Green;
+    } else {
+      _mesh_indicator = CRGB::Red;
+    }
+  }
+  EVERY_N_SECONDS(6) {
     if (MASTER) {
       _palettePointer = (_palettePointer + 1) % _numPalettes;
       // _palettes[_palettePointer]
       String packet = encodeMeshPalette(_palettes[_palettePointer]);
-      mesh.sendBroadcast(packet, /*includeSelf=*/true);
+      _mesh.sendBroadcast(packet, /*includeSelf=*/true);
     }
   }
   // EVERY_N_MILLISECONDS(5000) {
@@ -89,7 +102,8 @@ void receivedCallback(uint32_t from, String &msg) {
   CRGBPalette16 read_palette;
   if (decodeMeshPalette(msg, &read_palette)) {
     Serial.println("Received mesh palette!");
-    mesh_palette = read_palette;
+    _has_palette = true;
+    _mesh_palette = read_palette;
   }
 }
 
@@ -98,11 +112,11 @@ void newConnectionCallback(uint32_t nodeId) {
 }
 
 void changedConnectionCallback() {
-  Serial.printf("SYSTEM: Changed connections %s\n",mesh.subConnectionJson().c_str());
+  Serial.printf("SYSTEM: Changed connections %s\n", _mesh.subConnectionJson().c_str());
 }
 
 void nodeTimeAdjustedCallback(int32_t offset) {
-  Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n", mesh.getNodeTime(), offset);
+  Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n", _mesh.getNodeTime(), offset);
 }
 
 // Returns true if a new palette was read.
@@ -126,8 +140,7 @@ bool decodeMeshPalette(String buffer, CRGBPalette16* in_palette) {
   return false;
 }
 
-// You must free the return.
-// Format is base64 encoding of TAG + palette.entries.
+// Create base64 encoding of TAG + palette.entries.
 String encodeMeshPalette(CRGBPalette16 palette) {
   size_t size = sizeof(TAG_PALETTE) + sizeof(palette.entries);
   unsigned char buffer[size];
@@ -152,7 +165,7 @@ void confetti()  {
   fadeToBlackBy(leds, NUM_LEDS, 1);
   EVERY_N_MILLIS_I(timer, CONFETTI_MS) {
     int pos = random16(NUM_LEDS);
-    leds[pos] += ColorFromPalette(mesh_palette, random8(), 255, NOBLEND);
+    leds[pos] += ColorFromPalette(_mesh_palette, random8(), 255, NOBLEND);
   }
   timer.setPeriod(CONFETTI_MS);
 }
@@ -188,10 +201,10 @@ const CRGBPalette16 _palettes[] = {
   _netfish_blue,
   _palette_white,
   OceanColors_p,
-  ForestColors_p,
-  PartyColors_p,
-  HeatColors_p,
-  RainbowColors_p
+  // ForestColors_p,
+  // PartyColors_p,
+  // RainbowColors_p,
+  HeatColors_p
 };
  
 const uint8_t _numPalettes = sizeof(_palettes) / sizeof(CRGBPalette16);
