@@ -58,7 +58,7 @@ void loop() {
   }
   EVERY_N_MILLISECONDS(5000) {
     Serial.println("=====");
-    runTests();
+    runMeshtoyTests();
     Serial.println("=====");
   }
   FastLED.show();
@@ -92,26 +92,4 @@ void confetti()  {
     leds[pos] += ColorFromPalette(palette, random8(), 255, NOBLEND);
   }
   timer.setPeriod(CONFETTI_MS);
-}
-
-// TESTS
-
-void runTests() {
-  Serial.println("TESTS:");
-
-  uint8_t packet[32] = {0};
-
-  // put tag
-  put32(packet, 0x7267616D);
-  
-  Serial.print("read tag test: ");
-  Serial.println(get32(packet) == 0x7267616D ? "pass" : "fail");
-
-  // put type
-  put8(packet+4, PACKET_TYPE_COLOR_PALETTE);
-
-  Serial.print("read packet type test: ");
-  Serial.println(get8(packet+4) == PACKET_TYPE_COLOR_PALETTE ? "pass" : "fail");
-
-  
 }
