@@ -9,7 +9,7 @@ FASTLED_USING_NAMESPACE
 #define BRIGHTNESS  48
 #define DATA_PIN    D2
 #define LED_TYPE    WS2812
-#define COLOR_ORDER RGB
+#define COLOR_ORDER GRB
 #define NUM_LEDS    16
 #define FRAMES_PER_SECOND  65
 #define ONBOARD_PIN 2
@@ -75,13 +75,13 @@ void loop() {
     if (_mesh.getNodeList().size() > 0) {
       _mesh_indicator = CRGB::Green;
     } else {
-      _mesh_indicator = CRGB::Red;
+      EVERY_N_SECONDS(1) { _mesh_indicator = CRGB::Red; }
+      EVERY_N_SECONDS(2) { _mesh_indicator = CRGB::DarkRed; }
     }
   }
   EVERY_N_SECONDS(6) {
     if (MASTER) {
       _palettePointer = (_palettePointer + 1) % _numPalettes;
-      // _palettes[_palettePointer]
       String packet = encodeMeshPalette(_palettes[_palettePointer]);
       _mesh.sendBroadcast(packet, /*includeSelf=*/true);
     }
@@ -109,6 +109,10 @@ void receivedCallback(uint32_t from, String &msg) {
 
 void newConnectionCallback(uint32_t nodeId) {
   Serial.printf("SYSTEM: New Connection, nodeId = %u\n", nodeId);
+  if (MASTER) {
+    String packet = encodeMeshPalette(_palettes[_palettePointer]);
+    _mesh.sendSingle(nodeId, packet);
+  }
 }
 
 void changedConnectionCallback() {
@@ -123,8 +127,8 @@ void nodeTimeAdjustedCallback(int32_t offset) {
 bool decodeMeshPalette(String buffer, CRGBPalette16* in_palette) {
   String decoded = painlessmesh::base64::decode(buffer);
   
-  Serial.print("decoded: ");
-  Serial.println(decoded);
+  // Serial.print("decoded: ");
+  // Serial.println(decoded);
 
   char tag[sizeof(TAG_PALETTE)];
   memcpy(tag, decoded.c_str(), sizeof(TAG_PALETTE));
@@ -150,8 +154,8 @@ String encodeMeshPalette(CRGBPalette16 palette) {
   String encoded = painlessmesh::base64::encode(buffer, size);
 
   Serial.println("encodeMeshPalette():");
-  Serial.print("  raw buffer size: ");
-  Serial.println(size);
+  // Serial.print("  raw buffer size: ");
+  // Serial.println(size);
   Serial.print("  encoded buffer size: ");
   Serial.println(encoded.length());
 
