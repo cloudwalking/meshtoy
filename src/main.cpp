@@ -2,8 +2,7 @@
 #include <painlessMesh.h>
 #define FASTLED_ALLOW_INTERRUPTS 0
 #include <FastLED.h>
-
-#include "meshtoy.h"
+#include "painlessmesh/base64.hpp"
 
 FASTLED_USING_NAMESPACE
 
@@ -19,8 +18,12 @@ FASTLED_USING_NAMESPACE
 #define MESH_PASSWORD "synchrobike"
 #define MESH_PORT     5555
 
+#define TAG_PALETTE "syncpal"
+
+#define MASTER 1
+
 CRGB leds[NUM_LEDS];
-CRGBPalette16 palette = RainbowColors_p;
+CRGBPalette16 mesh_palette = RainbowColors_p;
 painlessMesh mesh;
 
 void confetti();
@@ -28,7 +31,13 @@ void receivedCallback(uint32_t from, String &msg);
 void newConnectionCallback(uint32_t nodeId);
 void changedConnectionCallback();
 void nodeTimeAdjustedCallback(int32_t offset);
+bool decodeMeshPalette(String buffer, CRGBPalette16* palette);
+String encodeMeshPalette(CRGBPalette16 palette);
 void runTests();
+
+extern const CRGBPalette16 _palettes[];
+extern const uint8_t _numPalettes;
+int8_t _palettePointer = 0;
 
 // ARDUINO
 
@@ -56,11 +65,19 @@ void loop() {
   EVERY_N_MILLISECONDS(1000/FRAMES_PER_SECOND) {
     confetti();
   }
-  EVERY_N_MILLISECONDS(5000) {
-    Serial.println("=====");
-    runMeshtoyTests();
-    Serial.println("=====");
+  EVERY_N_SECONDS(3) {
+    if (MASTER) {
+      _palettePointer = (_palettePointer + 1) % _numPalettes;
+      // _palettes[_palettePointer]
+      String packet = encodeMeshPalette(_palettes[_palettePointer]);
+      mesh.sendBroadcast(packet, /*includeSelf=*/true);
+    }
   }
+  // EVERY_N_MILLISECONDS(5000) {
+  //   Serial.println("=====");
+  //   runTests();
+  //   Serial.println("=====");
+  // }
   FastLED.show();
 }
 
@@ -68,6 +85,12 @@ void loop() {
 
 void receivedCallback(uint32_t from, String &msg) {
   Serial.printf("SYSTEM: Received from %u msg=%s\n", from, msg.c_str());
+
+  CRGBPalette16 read_palette;
+  if (decodeMeshPalette(msg, &read_palette)) {
+    Serial.println("Received mesh palette!");
+    mesh_palette = read_palette;
+  }
 }
 
 void newConnectionCallback(uint32_t nodeId) {
@@ -82,6 +105,46 @@ void nodeTimeAdjustedCallback(int32_t offset) {
   Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n", mesh.getNodeTime(), offset);
 }
 
+// Returns true if a new palette was read.
+bool decodeMeshPalette(String buffer, CRGBPalette16* in_palette) {
+  String decoded = painlessmesh::base64::decode(buffer);
+  
+  Serial.print("decoded: ");
+  Serial.println(decoded);
+
+  char tag[sizeof(TAG_PALETTE)];
+  memcpy(tag, decoded.c_str(), sizeof(TAG_PALETTE));
+  if (strcmp(tag, TAG_PALETTE) == 0) {
+    // Tag indicates this is a palette message.
+    CRGB colors[16];
+    memcpy(colors, decoded.c_str() + sizeof(TAG_PALETTE), sizeof(colors));
+    *in_palette = CRGBPalette16(colors);
+    return true;
+  }
+
+  // Doesn't look like a palette message.
+  return false;
+}
+
+// You must free the return.
+// Format is base64 encoding of TAG + palette.entries.
+String encodeMeshPalette(CRGBPalette16 palette) {
+  size_t size = sizeof(TAG_PALETTE) + sizeof(palette.entries);
+  unsigned char buffer[size];
+  memcpy(buffer, &TAG_PALETTE, sizeof(TAG_PALETTE));
+  memcpy(buffer + sizeof(TAG_PALETTE), &palette.entries, sizeof(palette.entries));
+
+  String encoded = painlessmesh::base64::encode(buffer, size);
+
+  Serial.println("encodeMeshPalette():");
+  Serial.print("  raw buffer size: ");
+  Serial.println(size);
+  Serial.print("  encoded buffer size: ");
+  Serial.println(encoded.length());
+
+  return encoded;
+}
+
 // ANIMATIONS
 
 void confetti()  {
@@ -89,7 +152,46 @@ void confetti()  {
   fadeToBlackBy(leds, NUM_LEDS, 1);
   EVERY_N_MILLIS_I(timer, CONFETTI_MS) {
     int pos = random16(NUM_LEDS);
-    leds[pos] += ColorFromPalette(palette, random8(), 255, NOBLEND);
+    leds[pos] += ColorFromPalette(mesh_palette, random8(), 255, NOBLEND);
   }
   timer.setPeriod(CONFETTI_MS);
 }
+
+// TESTS
+
+void runTests() {
+  String encoded_palette = encodeMeshPalette(RainbowColors_p);
+  Serial.print("encoded_palette: ");
+  Serial.println(encoded_palette);
+
+  CRGBPalette16 mesh_palette;
+  if (decodeMeshPalette(encoded_palette, &mesh_palette)) {
+    Serial.println("Got mesh palette!");
+  } else {
+    Serial.println("no mesh palette");
+  }
+}
+
+// PALETTES
+
+DEFINE_GRADIENT_PALETTE(_netfish_blue) {
+  0, 0, 64, 255,
+  255, 0, 16, 128
+};
+
+DEFINE_GRADIENT_PALETTE(_palette_white) {
+  0, 255, 255, 255,
+  255, 255, 255, 255
+};
+
+const CRGBPalette16 _palettes[] = {
+  _netfish_blue,
+  _palette_white,
+  OceanColors_p,
+  ForestColors_p,
+  PartyColors_p,
+  HeatColors_p,
+  RainbowColors_p
+};
+ 
+const uint8_t _numPalettes = sizeof(_palettes) / sizeof(CRGBPalette16);
