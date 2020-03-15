@@ -52,14 +52,34 @@ void setup() {
 
   // Print all debug messages.
   //mesh.setDebugMsgTypes( ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE );
-  // Print some debug messages.
+  // Print some debug messages. Set before init.
   _mesh.setDebugMsgTypes( ERROR | STARTUP | CONNECTION);
   
   _mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT);
-  _mesh.onReceive(&receivedCallback);
-  _mesh.onNewConnection(&newConnectionCallback);
-  _mesh.onChangedConnections(&changedConnectionCallback);
-  _mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
+  _mesh.onReceive([](uint32_t from, String &msg) {
+    Serial.printf("SYSTEM: Received from %u msg=%s\n", from, msg.c_str());
+    CRGBPalette16 read_palette;
+    if (decodeMeshPalette(msg, &read_palette)) {
+      Serial.println("Received mesh palette!");
+      _has_palette = true;
+      _mesh_palette = read_palette;
+    }
+  });
+  _mesh.onNewConnection([](uint32_t nodeId){
+    Serial.printf("SYSTEM: New Connection, nodeId = %u\n", nodeId);
+    if (MASTER) {
+      String packet = encodeMeshPalette(_palettes[_palettePointer]);
+      _mesh.sendSingle(nodeId, packet);
+    }
+  });
+  _mesh.onChangedConnections([]() {
+    Serial.printf("SYSTEM: Changed connections %s\n",
+                  _mesh.subConnectionJson().c_str());
+  });
+  _mesh.onNodeTimeAdjusted([](int32_t offset){
+    Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n",
+                  _mesh.getNodeTime(), offset);
+  });
 }
 
 void loop() {
@@ -95,33 +115,6 @@ void loop() {
 }
 
 // MESH
-
-void receivedCallback(uint32_t from, String &msg) {
-  Serial.printf("SYSTEM: Received from %u msg=%s\n", from, msg.c_str());
-
-  CRGBPalette16 read_palette;
-  if (decodeMeshPalette(msg, &read_palette)) {
-    Serial.println("Received mesh palette!");
-    _has_palette = true;
-    _mesh_palette = read_palette;
-  }
-}
-
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("SYSTEM: New Connection, nodeId = %u\n", nodeId);
-  if (MASTER) {
-    String packet = encodeMeshPalette(_palettes[_palettePointer]);
-    _mesh.sendSingle(nodeId, packet);
-  }
-}
-
-void changedConnectionCallback() {
-  Serial.printf("SYSTEM: Changed connections %s\n", _mesh.subConnectionJson().c_str());
-}
-
-void nodeTimeAdjustedCallback(int32_t offset) {
-  Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n", _mesh.getNodeTime(), offset);
-}
 
 // Returns true if a new palette was read.
 bool decodeMeshPalette(String buffer, CRGBPalette16* in_palette) {
